@@ -15,7 +15,7 @@ Ask who they actually compete with in real sales situations. Not 50 names from a
 For each Tier A and B competitor, you need specific URLs to monitor. Help them find: homepage, pricing page, blog, changelog/release notes, customers page, careers page. Common mistake: people guess paths like `/changelog` without checking. Every URL must return HTTP 200 — verify before adding. Check sitemap.xml and website footers for pages not in the main navigation.
 
 **Strategy context (what makes this intelligence, not just news):**
-Ask them to describe in 200-400 words: what their client does, who they sell to, what they win on, what they lose on, and what they're worried about. This is what the AI uses to explain *why* a signal matters. If this is vague ("we sell software to businesses"), the output will be generic. Push for specifics.
+Ask them to describe in 200-400 words: what the company does, who they sell to, what they win on, what they lose on, and what they're worried about. This is what the AI uses to explain *why* a signal matters. If this is vague ("we sell software to businesses"), the output will be generic. Push for specifics.
 
 **Industry keywords (noise filtering):**
 Ask what 5-10 terms define their industry. These are used to filter out irrelevant search results. Common mistake: a competitor called "Monday" returns articles about the day of the week. Industry keywords ensure only relevant results get through.

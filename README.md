@@ -98,7 +98,7 @@ competitive-intel-monitoring/
 
 ## How to Use This Repo
 
-**The quick version:** Send Claude (or your LLM of choice) the link to this repo and ask it to help you set up competitive monitoring for your client. It will read the prerequisites, tell you what information you need to prepare, and then build the system for you. You don't need to write any code.
+**The quick version:** Send Claude (or your LLM of choice) the link to this repo and ask it to help you set up competitive monitoring. It will read the prerequisites, tell you what information you need to prepare, and then build the system for you. You don't need to write any code.
 
 **The step-by-step version:**
 
