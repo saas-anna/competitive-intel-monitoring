@@ -114,7 +114,12 @@ competitive-intel-monitoring/
 4. Claude builds and configures the workflow for your specific situation
 5. Test run, review output quality, activate schedule
 
-**What this system produces:** A biweekly email snapshot — "here's what changed and why it matters." It compares against previous runs to avoid repeating old news, and keeps a log in Google Sheets. It does not build a cumulative competitive database. What you do with the insights over time (tracking patterns, updating your strategy) is up to you.
+**What this system produces:** A biweekly email snapshot — "here's what changed and why it matters." It compares against previous runs to avoid repeating old news, and keeps a log in Google Sheets.
+
+**What this repo covers — and what it doesn't:**
+- **Before** (covered): The prerequisites guide and BUILD-GUIDE walk you through the strategic homework — competitor identification, tiering, URL discovery, strategy context. Claude will guide you through this conversationally.
+- **Monitoring** (covered): Automated biweekly collection, noise filtering, analysis, and delivery.
+- **After** (not covered): What you do with the accumulated intelligence over time — tracking patterns across months, escalating insights into your strategy docs, building a competitive knowledge base. That's a knowledge management question, not a monitoring question, and it depends on how your team works.
 
 ---
 
