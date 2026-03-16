@@ -1,0 +1,1051 @@
+{
+  "updatedAt": "2026-03-16T08:06:55.600Z",
+  "createdAt": "2026-03-15T10:48:02.580Z",
+  "id": "YOUR_WORKFLOW_ID",
+  "name": "[Your Company] CI Digest",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 1,15 * *"
+            }
+          ]
+        }
+      },
+      "id": "sch-ci-0001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const now = new Date();\nconst twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);\nconst epochSince = Math.floor(twoWeeksAgo.getTime() / 1000);\nconst runDate = now.toISOString().split('T')[0];\n\n// Clear any previous static data\nconst staticData = $getWorkflowStaticData('global');\nObject.keys(staticData).forEach(k => delete staticData[k]);\n\nreturn [{\n  json: {\n    runId: `ci-${runDate}`,\n    runTimestamp: now.toISOString(),\n    runDate,\n    epochSince,\n    gmailAfter: twoWeeksAgo.toISOString().split('T')[0],\n    sheetId: 'YOUR_GOOGLE_SHEET_ID'\n  }\n}];"
+      },
+      "id": "cod-ci-0002",
+      "name": "Run Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "State"
+        },
+        "options": {}
+      },
+      "id": "gsh-ci-0003",
+      "name": "Read State Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        608,
+        304
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleApi": {
+          "id": "YOUR_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "PreviousSignals"
+        },
+        "options": {}
+      },
+      "id": "gsh-ci-0004",
+      "name": "Read PreviousSignals",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        912,
+        304
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleApi": {
+          "id": "YOUR_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// \u2550\u2550\u2550 DEDUPLICATION \u2550\u2550\u2550\n// 1. Within-run: merge same event across sources by title similarity\n// 2. Cross-run: mark signals that appeared in previous digests\n\nconst input = $input.all()[0].json;\nconst signals = input.signals || [];\nconst sd = $getWorkflowStaticData('global');\nconst prevSignals = sd.previousSignals || [];\n\n// \u2500\u2500 Jaccard word similarity \u2500\u2500\nfunction wordSimilarity(a, b) {\n  const wa = new Set(String(a).toLowerCase().replace(/[^a-z0-9\\s]/g, '').split(/\\s+/).filter(w => w.length > 2));\n  const wb = new Set(String(b).toLowerCase().replace(/[^a-z0-9\\s]/g, '').split(/\\s+/).filter(w => w.length > 2));\n  if (wa.size === 0 || wb.size === 0) return 0;\n  let intersection = 0;\n  for (const w of wa) { if (wb.has(w)) intersection++; }\n  return intersection / (wa.size + wb.size - intersection);\n}\n\n// \u2500\u2500 Step 1: Within-run dedup \u2500\u2500\nconst merged = [];\nconst used = new Set();\nfor (let i = 0; i < signals.length; i++) {\n  if (used.has(i)) continue;\n  const sig = { ...signals[i], sources_all: [{ name: signals[i].source, url: signals[i].url }] };\n  for (let j = i + 1; j < signals.length; j++) {\n    if (used.has(j)) continue;\n    if (wordSimilarity(sig.title, signals[j].title) > 0.5) {\n      sig.sources_all.push({ name: signals[j].source, url: signals[j].url });\n      if (signals[j].summary.length > sig.summary.length) sig.summary = signals[j].summary;\n      used.add(j);\n    }\n  }\n  merged.push(sig);\n}\n\n// \u2500\u2500 Step 2: Cross-run dedup \u2500\u2500\nconst final = [];\nfor (const sig of merged) {\n  let previouslyReported = false;\n  let firstSeen = null;\n  for (const prev of prevSignals) {\n    if (wordSimilarity(sig.title, prev.Title || prev.title || '') > 0.45) {\n      previouslyReported = true;\n      firstSeen = prev.Date || prev.date || 'previous run';\n      break;\n    }\n  }\n  sig.previouslyReported = previouslyReported;\n  sig.firstSeen = firstSeen;\n  // Only include if new OR if it's genuinely different content\n  if (!previouslyReported) {\n    final.push(sig);\n  } else {\n    // Check if summary has substantially new info vs previous\n    const prevMatch = prevSignals.find(p => wordSimilarity(sig.title, p.Title || p.title || '') > 0.45);\n    if (prevMatch && wordSimilarity(sig.summary, prevMatch.Summary || prevMatch.summary || '') < 0.3) {\n      sig.title = 'Update: ' + sig.title;\n      final.push(sig);\n    }\n    // Otherwise: filtered out (duplicate)\n  }\n}\n\nsd.dedupStats = { raw: signals.length, afterWithinDedup: merged.length, afterCrossDedup: final.length, filtered: merged.length - final.length };\n\nreturn [{ json: { signals: final, stats: sd.stats, dedupStats: sd.dedupStats } }];"
+      },
+      "id": "cod-ci-0006",
+      "name": "Dedup Signals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.all()[0].json;\nconst signals = input.signals || [];\nconst stats = input.stats || {};\nconst sd = $getWorkflowStaticData('global');\nconst prevSignals = sd.previousSignals || [];\n\nconst systemPrompt = `You are a competitive intelligence analyst for [Your Company], a [YOUR INDUSTRY] platform. You produce a biweekly competitive intelligence digest.\n\n## Strategy Context\n\n[INSERT YOUR COMPANY'S STRATEGY CONTEXT HERE - see METHODOLOGY.md for guidance]\n\n## Competitor Tiers\n\n[INSERT YOUR COMPETITOR TIERS HERE - organize into Tier A (deep, direct threats), Tier B (partial overlap), Tier C (passive)]\n\n## Signal-vs-Noise Rules\n\nINCLUDE: Positioning/tagline shift, target audience language change, GTM model shift, new product/feature, new customer logos in ICP segments, new partnership/integration, geographic/language expansion, pricing model change, funding rounds, acquisitions, product launches, leadership changes, hiring patterns signaling strategy, enforcement dates/deadlines, national regulation implementation milestones.\n\nEXCLUDE: CTA tweaks, design changes without messaging changes, blog post rotation, minor copy edits, generic listicles, market sizing reports (Background only), conference attendance without announcements, routine blog posts.\n\nMERGE: When same event appears from multiple sources, combine into ONE signal with all source links.\n\n## Output Format - MANDATORY\n\nYou MUST output valid JSON with exactly these keys. Every key MUST be present. If a section has no content, use an empty array.\n\n{\n  \"strategic_signals\": [\n    { \"competitor\": \"<name>\", \"signal_type\": \"<POSITIONING|PRODUCT|PRICING|GTM|FUNDING|REGULATORY|PARTNERSHIP>\", \"title\": \"<headline>\", \"analysis\": \"<2-3 sentences on strategic ramification for [Your Company]>\", \"sources\": [{\"name\": \"<publication name>\", \"url\": \"<URL>\"}] }\n  ],\n  \"notable_changes\": [\n    { \"competitor\": \"<name>\", \"title\": \"<headline>\", \"context\": \"<one line + why relevant>\", \"sources\": [{\"name\": \"<publication name>\", \"url\": \"<URL>\"}] }\n  ],\n  \"regulatory_market\": [\n    { \"title\": \"<headline>\", \"summary\": \"<brief>\", \"sources\": [{\"name\": \"<publication name>\", \"url\": \"<URL>\"}] }\n  ],\n  \"background\": [\n    { \"competitor\": \"<name>\", \"title\": \"<headline>\", \"sources\": [{\"name\": \"<publication name>\", \"url\": \"<URL>\"}] }\n  ],\n  \"patterns\": [\"<cross-run observation>\"],\n  \"no_signals\": [\"<competitor names with zero activity>\"]\n}\n\n## CRITICAL RULES\n\n1. **Strategic Signals is MANDATORY.** Always include 1-3 items. If nothing rises to strategic significance, include one item with title \"No strategic-level signals this period\" and analysis explaining why.\n\n2. **Every item MUST have source links.** The sources array must never be empty. Use the URLs from raw signals. If none, use the competitor website as fallback with \"(company website)\" as name.\n\n3. **Cross-run deduplication.** Signals marked previouslyReported in input already appeared before. They have been pre-filtered, but if any slip through, do NOT include them unless they contain genuinely new information. Prefix with \"Update:\" if including.\n\n4. **Signal merging.** Same event from multiple sources -> ONE signal with combined sources array.\n\n5. **No action items or recommendations.** Report facts and strategic implications only.\n\n6. **Source link names.** Use publication/site names, not generic \"[Source]\" or \"[Link]\".\n\n7. **Noise exclusion.** If a signal title/summary has NO connection to the named competitor or to [YOUR INDUSTRY], it is noise - exclude it entirely. Do NOT put noise in Background. Background is for genuinely relevant but non-urgent items. Articles about real estate, cricket, retail stores, or unrelated medical clinics are noise, not background.\n\n8. **JSON only.** Output ONLY the JSON object. No markdown, no commentary.`;\n\nconst signalsBySource = {};\nfor (const sig of signals) {\n  const src = sig.source || 'unknown';\n  if (!signalsBySource[src]) signalsBySource[src] = [];\n  signalsBySource[src].push(sig);\n}\n\nlet userPrompt = `## Raw Signals Collected on ${sd.stats ? 'today' : new Date().toISOString().split('T')[0]}\\n\\n`;\n\nconst sourceLabels = {\n  url_monitor: 'URL Change Detection',\n  changedetection: 'Changedetection.io',\n  gmail_alert: 'Gmail Alerts (Google Alerts + F5Bot)',\n  news_search: 'News Search Results',\n  regulatory: 'Regulatory Search Results',\n  self_search: 'Self-Search ([Your Company] mentions)'\n};\n\nfor (const [src, label] of Object.entries(sourceLabels)) {\n  const items = signalsBySource[src] || [];\n  userPrompt += `### ${label}\\n`;\n  if (items.length === 0) {\n    userPrompt += 'No signals.\\n\\n';\n  } else {\n    userPrompt += JSON.stringify(items, null, 1) + '\\n\\n';\n  }\n}\n\nuserPrompt += `---\\n\\n## Previous Signals (for cross-run dedup)\\n\\nThese signals appeared in the last 2 digest runs. Do NOT repeat them.\\n\\n${JSON.stringify(prevSignals.slice(0, 50), null, 1)}\\n\\n---\\n\\nAnalyze all signals. Apply signal-vs-noise rules. Merge duplicates. Output the digest as the specified JSON format. JSON only, no other text.`;\n\nreturn [{ json: { systemPrompt, userPrompt, signalCount: signals.length, stats } }];"
+      },
+      "id": "cod-ci-0007",
+      "name": "Build LLM Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "REPLACE_WITH_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 8192, system: $json.systemPrompt, messages: [{ role: 'user', content: $json.userPrompt }] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "http-ci-0008",
+      "name": "Call Claude API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2112,
+        304
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_HEADER_AUTH_CREDENTIAL_ID",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Claude's response and validate all required sections\nconst response = $input.all()[0].json;\nconst sd = $getWorkflowStaticData('global');\n\nlet content = '';\ntry {\n  // Claude API returns { content: [{ type: 'text', text: '...' }] }\n  if (response.content && Array.isArray(response.content)) {\n    content = response.content[0].text;\n  } else if (typeof response === 'string') {\n    content = response;\n  } else {\n    content = JSON.stringify(response);\n  }\n} catch (e) {\n  return [{ json: { error: 'Failed to extract response: ' + e.message, raw: response } }];\n}\n\n// Strip markdown code fences if present\ncontent = content.replace(/^```json\\s*/i, '').replace(/^```\\s*/i, '').replace(/\\s*```$/i, '').trim();\n\nlet digest;\ntry {\n  digest = JSON.parse(content);\n} catch (e) {\n  return [{ json: { error: 'Invalid JSON from Claude: ' + e.message, raw: content.substring(0, 2000) } }];\n}\n\n// \u2500\u2500 Validate required sections \u2500\u2500\nconst warnings = [];\n\n// Bug fix #1: Strategic Signals must exist\nif (!digest.strategic_signals || !Array.isArray(digest.strategic_signals) || digest.strategic_signals.length === 0) {\n  warnings.push('Strategic Signals section was empty \u2014 injected fallback');\n  digest.strategic_signals = [{\n    competitor: 'Market',\n    signal_type: 'REGULATORY',\n    title: 'No strategic-level signals this period',\n    analysis: 'No signals from the past two weeks rise to the level of changing a strategic decision. The competitive landscape remains stable relative to the previous digest period.',\n    sources: [{ name: 'CI Digest system', url: 'https://yourcompany.example.com' }]\n  }];\n}\n\n// Bug fix #2: Validate source links on all items\nlet missingLinks = 0;\nfor (const section of ['strategic_signals', 'notable_changes', 'regulatory_market', 'background']) {\n  const items = digest[section] || [];\n  for (const item of items) {\n    if (!item.sources || !Array.isArray(item.sources) || item.sources.length === 0) {\n      missingLinks++;\n      item.sources = [{ name: '(no source provided)', url: '#' }];\n    }\n  }\n}\nif (missingLinks > 0) warnings.push(`${missingLinks} items had missing source links \u2014 flagged`);\n\n// Ensure all sections exist\nif (!digest.patterns) digest.patterns = [];\nif (!digest.no_signals) digest.no_signals = [];\nif (!digest.notable_changes) digest.notable_changes = [];\nif (!digest.regulatory_market) digest.regulatory_market = [];\nif (!digest.background) digest.background = [];\n\n// Determine which competitors had no signals\nconst competitors = (sd.competitors || []).map(c => c.name);\nconst mentionedCompetitors = new Set();\nfor (const section of ['strategic_signals', 'notable_changes', 'background']) {\n  for (const item of (digest[section] || [])) {\n    if (item.competitor) mentionedCompetitors.add(item.competitor);\n  }\n}\nconst silent = competitors.filter(c => !mentionedCompetitors.has(c) && c !== '[Your Company] (self)');\nif (digest.no_signals.length === 0 && silent.length > 0) {\n  digest.no_signals = silent;\n}\n\nreturn [{ json: { digest, warnings, stats: sd.stats } }];"
+      },
+      "id": "cod-ci-0009",
+      "name": "Parse LLM Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.all()[0].json;\nconst digest = input.digest;\nconst stats = input.stats || {};\nconst warnings = input.warnings || [];\nconst runDate = new Date().toISOString().split('T')[0];\n\nfunction escHtml(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }\nfunction sourceLinks(sources) {\n  if (!sources || sources.length === 0) return '';\n  return sources.map(s => s.url && s.url !== '#' ? `<a href=\"${escHtml(s.url)}\" style=\"color:#1a73e8;text-decoration:none\">${escHtml(s.name)}</a>` : escHtml(s.name)).join(' | ');\n}\n\nlet html = `<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:680px;margin:0 auto;padding:20px;color:#333;line-height:1.5\">`;\n\n// Header\nhtml += `<h1 style=\"color:#1a1a1a;font-size:22px;margin-bottom:4px\">[Your Company] CI Digest \u2014 ${runDate}</h1>`;\n\n// Stats line\nhtml += `<p style=\"font-style:italic;color:#666;font-size:13px;margin-top:0\">${stats.competitors_monitored || 13} competitors monitored | ${stats.urls_fetched || 0} URLs fetched | ${stats.url_errors || 0} errors | ${stats.cd_changes || 0} CD changes | ${stats.gmail_alerts || 0} alerts | ${stats.g2_reviews || 0} G2 reviews | ${stats.news_items || 0} news items | ${stats.regulatory_items || 0} regulatory items</p>`;\n\nif (warnings.length > 0) {\n  html += `<p style=\"color:#d93025;font-size:12px\">\u26a0\ufe0f ${warnings.join(' | ')}</p>`;\n}\n\nhtml += '<hr style=\"border:none;border-top:1px solid #e0e0e0;margin:16px 0\">';\n\n// Strategic Signals\nhtml += '<h2 style=\"color:#1a73e8;font-size:17px;margin-bottom:8px\">\ud83c\udfaf Strategic Signals</h2>';\nfor (const sig of (digest.strategic_signals || [])) {\n  html += `<div style=\"margin-bottom:12px;padding:10px 14px;background:#e8f0fe;border-left:3px solid #1a73e8;border-radius:4px\">`;\n  html += `<div style=\"font-weight:600;font-size:14px\"><strong>${escHtml(sig.competitor)}</strong> [${escHtml(sig.signal_type)}]: ${escHtml(sig.title)}</div>`;\n  html += `<div style=\"font-size:13px;margin-top:4px;color:#444\">${escHtml(sig.analysis)}</div>`;\n  html += `<div style=\"font-size:12px;margin-top:4px;color:#888\">${sourceLinks(sig.sources)}</div></div>`;\n}\n\n// Notable Changes\nif (digest.notable_changes && digest.notable_changes.length > 0) {\n  html += '<h2 style=\"color:#333;font-size:16px;margin-top:20px;margin-bottom:8px\">Notable Changes</h2>';\n  html += '<ul style=\"padding-left:20px;margin:0\">';\n  for (const item of digest.notable_changes) {\n    html += `<li style=\"margin-bottom:8px;font-size:13px\"><strong>${escHtml(item.competitor)}:</strong> ${escHtml(item.title)} \u2014 <span style=\"color:#555\">${escHtml(item.context)}</span><br><span style=\"font-size:11px;color:#888\">${sourceLinks(item.sources)}</span></li>`;\n  }\n  html += '</ul>';\n}\n\n// Regulatory & Market\nif (digest.regulatory_market && digest.regulatory_market.length > 0) {\n  html += '<h2 style=\"color:#333;font-size:16px;margin-top:20px;margin-bottom:8px\">Regulatory &amp; Market</h2>';\n  html += '<ul style=\"padding-left:20px;margin:0\">';\n  for (const item of digest.regulatory_market) {\n    html += `<li style=\"margin-bottom:8px;font-size:13px\"><strong>${escHtml(item.title)}</strong> \u2014 <span style=\"color:#555\">${escHtml(item.summary)}</span><br><span style=\"font-size:11px;color:#888\">${sourceLinks(item.sources)}</span></li>`;\n  }\n  html += '</ul>';\n}\n\n// Background\nif (digest.background && digest.background.length > 0) {\n  html += '<h2 style=\"color:#999;font-size:15px;margin-top:20px;margin-bottom:8px\">Background</h2>';\n  html += '<ul style=\"padding-left:20px;margin:0\">';\n  for (const item of digest.background) {\n    html += `<li style=\"margin-bottom:4px;font-size:12px;color:#666\"><strong>${escHtml(item.competitor)}:</strong> ${escHtml(item.title)} \u2014 ${sourceLinks(item.sources)}</li>`;\n  }\n  html += '</ul>';\n}\n\n// Patterns\nif (digest.patterns && digest.patterns.length > 0) {\n  html += '<h2 style=\"color:#333;font-size:15px;margin-top:20px;margin-bottom:8px\">Patterns</h2>';\n  html += '<ul style=\"padding-left:20px;margin:0\">';\n  for (const p of digest.patterns) {\n    html += `<li style=\"margin-bottom:4px;font-size:13px\">${escHtml(p)}</li>`;\n  }\n  html += '</ul>';\n}\n\n// No Signals\nif (digest.no_signals && digest.no_signals.length > 0) {\n  html += '<h2 style=\"color:#999;font-size:14px;margin-top:20px;margin-bottom:4px\">No Signals</h2>';\n  html += `<p style=\"font-size:12px;color:#888\">${digest.no_signals.map(escHtml).join(', ')}</p>`;\n}\n\nhtml += `<hr style=\"border:none;border-top:1px solid #e0e0e0;margin:20px 0\"><p style=\"font-size:11px;color:#aaa\">Generated by [Your Company] CI Digest (n8n) | ${runDate}</p></body></html>`;\n\nreturn [{ json: { html, subject: `[Your Company] CI Digest \u2014 ${runDate}`, digest, stats } }];"
+      },
+      "id": "cod-ci-0010",
+      "name": "Build HTML Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2704,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "your@email.com",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "gml-ci-0011",
+      "name": "Send Digest Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        3008,
+        304
+      ],
+      "webhookId": "00000000-0000-0000-0000-000000000001",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare data for Google Sheets state updates\nconst input = $input.all()[0].json;\nconst digest = input.digest;\nconst stats = input.stats || {};\nconst sd = $getWorkflowStaticData('global');\nconst urlHashes = sd.urlHashes || {};\nconst runDate = new Date().toISOString().split('T')[0];\nconst now = new Date().toISOString();\n\n// \u2500\u2500 State tab rows (URL hashes) \u2500\u2500\nconst stateRows = Object.entries(urlHashes).map(([url, data]) => ({\n  Competitor: data.competitor,\n  URL: url,\n  Type: 'webpage',\n  ContentHash: data.hash,\n  LastChecked: now,\n  LastChanged: '' // only set if changed, handled by comparison\n}));\n\n// \u2500\u2500 PreviousSignals rows (current + previous for 2-run window) \u2500\u2500\nconst currentSignals = [];\nfor (const section of ['strategic_signals', 'notable_changes', 'regulatory_market', 'background']) {\n  for (const item of (digest[section] || [])) {\n    currentSignals.push({\n      Date: runDate,\n      Title: item.title || '',\n      Competitor: item.competitor || 'Market',\n      Source: (item.sources && item.sources[0]) ? item.sources[0].name : '',\n      SignalType: item.signal_type || section,\n      Summary: item.context || item.summary || item.analysis || ''\n    });\n  }\n}\n// Keep previous run's signals too (2-run window)\nconst prevSignals = (sd.previousSignals || []).filter(p => p.Date !== runDate);\nconst allPrevSignals = [...currentSignals, ...prevSignals];\n\n// \u2500\u2500 History rows (append-only) \u2500\u2500\nconst historyRows = currentSignals.map(s => ({\n  Timestamp: now,\n  Competitor: s.Competitor,\n  Title: s.Title,\n  Type: s.SignalType,\n  Category: s.Source,\n  Date: s.Date\n}));\n\nreturn [{ json: { stateRows, previousSignals: allPrevSignals, historyRows, runDate } }];"
+      },
+      "id": "cod-ci-0012",
+      "name": "Prepare State Updates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3008,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "State"
+        }
+      },
+      "id": "gsh-ci-0013",
+      "name": "Clear State Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3312,
+        448
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "YOUR_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "PreviousSignals"
+        }
+      },
+      "id": "gsh-ci-0014",
+      "name": "Clear PreviousSignals",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3312,
+        640
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "YOUR_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Convert state rows to individual items for Sheets append\nconst prepData = $('Prepare State Updates').first().json;\nconst rows = prepData.stateRows || [];\nreturn rows.map(r => ({ json: r }));"
+      },
+      "id": "cod-ci-0015",
+      "name": "Write State Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "State"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "gsh-ci-0016",
+      "name": "Append State Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3904,
+        448
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "YOUR_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Convert previous signals to individual items for Sheets append\nconst prepData = $('Prepare State Updates').first().json;\nconst rows = prepData.previousSignals || [];\nreturn rows.map(r => ({ json: r }));"
+      },
+      "id": "cod-ci-0017",
+      "name": "Write PrevSignals Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "PreviousSignals"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Title",
+              "displayName": "Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Competitor",
+              "displayName": "Competitor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "SignalType",
+              "displayName": "SignalType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Summary",
+              "displayName": "Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "gsh-ci-0018",
+      "name": "Append PreviousSignals",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3904,
+        640
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "YOUR_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Convert history rows to individual items for Sheets append\nconst prepData = $('Prepare State Updates').first().json;\nconst rows = prepData.historyRows || [];\nreturn rows.map(r => ({ json: r }));"
+      },
+      "id": "cod-ci-0019",
+      "name": "Write History Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3312,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "History"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "2026-02-21 16:31 UTC",
+              "displayName": "2026-02-21 16:31 UTC",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Competitor Alpha",
+              "displayName": "Competitor Alpha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "https://www.competitor-alpha.ai/pricing",
+              "displayName": "https://www.competitor-alpha.ai/pricing",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "pricing",
+              "displayName": "pricing",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "URL_CHANGE",
+              "displayName": "URL_CHANGE",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Competitor",
+              "displayName": "Competitor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Title",
+              "displayName": "Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Type",
+              "displayName": "Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "gsh-ci-0020",
+      "name": "Append History",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3600,
+        848
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "YOUR_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 200,
+        "filters": {
+          "labelIds": [
+            "Competitive Intel"
+          ],
+          "receivedAfter": "={{ $('Run Metadata').first().json.gmailAfter }}"
+        }
+      },
+      "id": "gml-ci-0021",
+      "name": "Read Gmail Alerts",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1056,
+        512
+      ],
+      "webhookId": "00000000-0000-0000-0000-000000000002",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Always output at least 1 item to keep the chain flowing\n// (Google Sheets returns 0 items when tab is empty)\nconst items = $input.all();\nif (items.length === 0) {\n  return [{ json: { _empty: true } }];\n}\nreturn items;"
+      },
+      "id": "7dfb666e-015b-479b-9cd4-6ec5d0ac4dde",
+      "name": "Ensure Flow",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        768,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (items.length === 0) {\n  return [{ json: { _empty: true } }];\n}\nreturn items;"
+      },
+      "id": "0d384bcb-bdc8-4230-8539-0c6917c28b6c",
+      "name": "Ensure Flow 2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1024,
+        304
+      ]
+    },
+    {
+      "id": "cod-ci-buildreq",
+      "name": "Build Request List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        600
+      ],
+      "parameters": {
+        "jsCode": "const COMPETITORS = [\n  {name:'Competitor Alpha',altNames:['Competitor Alpha'],tier:'A',domain:'competitor-alpha.ai',urls:['https://www.competitor-alpha.ai','https://www.competitor-alpha.ai/pricing','https://www.competitor-alpha.ai/blog'],people:['Person A'],languages:['en']},\n  {name:'Competitor Beta',altNames:[],tier:'A',domain:'competitor-beta.com',urls:['https://www.competitor-beta.com'],people:[],languages:['en']},\n  {name:'Competitor Gamma',altNames:[],tier:'A',domain:'competitor-gamma.com',urls:['https://www.competitor-gamma.com','https://www.competitor-gamma.com/products','https://www.competitor-gamma.com/resources'],people:['Person B'],languages:['en']},\n  {name:'Competitor Delta',altNames:[],tier:'A',domain:'competitor-delta.com',urls:['https://www.competitor-delta.com','https://www.competitor-delta.com/news'],people:[],languages:['en']},\n  {name:'Competitor Epsilon',altNames:[],tier:'B',domain:'competitor-epsilon.com',urls:['https://www.competitor-epsilon.com','https://www.competitor-epsilon.com/pricing'],people:[],languages:['en']},\n  {name:'Competitor Zeta',altNames:[],tier:'B',domain:'competitor-zeta.io',urls:['https://competitor-zeta.io','https://competitor-zeta.io/pricing','https://competitor-zeta.io/resources'],people:[],languages:['en']},\n  {name:'Competitor Eta',altNames:['Competitor Eta'],tier:'B',domain:'competitor-eta.com',urls:['https://www.competitor-eta.com','https://www.competitor-eta.com/pricing'],people:[],languages:['en']},\n  {name:'Competitor Theta',altNames:[],tier:'B',domain:'competitor-theta.com',urls:['https://competitor-theta.com','https://competitor-theta.com/solutions'],people:[],languages:['en']},\n  {name:'Competitor Iota',altNames:['Iota Platform'],tier:'B',domain:'competitor-iota.com',urls:['https://competitor-iota.com','https://competitor-iota.com/solutions'],people:[],languages:['en']},\n  {name:'Competitor Kappa',altNames:[],tier:'C',domain:'competitor-kappa.com',urls:[],people:[],languages:[]},\n  {name:'Competitor Lambda',altNames:[],tier:'C',domain:'competitor-lambda.com',urls:[],people:[],languages:[]},\n  {name:'Competitor Mu',altNames:['Competitor Mu'],tier:'C',domain:'competitor-mu.com',urls:[],people:[],languages:[]},\n  {name:'Competitor Nu',altNames:[],tier:'C',domain:'competitor-nu.com',urls:[],people:[],languages:[]}\n];\nconst sd = $getWorkflowStaticData('global');\nsd.competitors = COMPETITORS.map(c => ({name:c.name,tier:c.tier,altNames:c.altNames,domain:c.domain}));\nconst SX = 'http://host.docker.internal:8888';\nconst r = [];\nfunction sxUrl(q) {\n  return SX + '/search?q=' + encodeURIComponent(q) + '&format=json&categories=news&time_range=month';\n}\n// Source 1: URL monitoring (Tier A+B)\nfor (const c of COMPETITORS.filter(x=>x.tier==='A'||x.tier==='B')) {\n  for (const u of c.urls) r.push({json:{url:u,type:'url_monitor',competitor:c.name}});\n}\n// Source 2: SearXNG news - Tier A deep\nfor (const c of COMPETITORS.filter(x=>x.tier==='A')) {\n  const qs = ['\"' + c.name + '\" [YOUR_INDUSTRY] [YOUR_KEYWORD_1] \"[YOUR_KEYWORD_2]\"'];\n  // If your market includes non-English languages, add local language queries:\n  // if (c.languages.includes('de')) {\n  //   qs.push('\"' + c.name + '\" AND (\"[LOCAL_TERM_1]\" OR \"[YOUR_INDUSTRY]\" OR \"[LOCAL_TERM_2]\")');\n  // }\n  for (const p of c.people) qs.push('\"' + p + '\"');\n  for (const q of qs) r.push({json:{url:sxUrl(q),type:'news_search',competitor:c.name,query:q}});\n}\n// Source 3: SearXNG news - Tier B light\nfor (const c of COMPETITORS.filter(x=>x.tier==='B')) {\n  const q = '\"' + c.name + '\" [YOUR_INDUSTRY] [YOUR_KEYWORD_1]';\n  r.push({json:{url:sxUrl(q),type:'news_search',competitor:c.name,query:q}});\n}\n// Source 4: Regulatory (2 focused queries)\nfor (const q of ['[REGULATION_1] [REGULATION_2] compliance \"[YOUR_KEYWORD_2]\" regulation 2025 2026','\"[YOUR_INDUSTRY]\" OR \"[INDUSTRY_LONG_FORM]\" software market 2025 2026']) {\n  r.push({json:{url:sxUrl(q),type:'regulatory',competitor:'Market',query:q}});\n}\n// Source 5: Self-search\nfor (const q of ['\"[Your Company] [YOUR_INDUSTRY]\"','\"[Your Company]\"','yourcompany.example.com']) {\n  r.push({json:{url:sxUrl(q),type:'self_search',competitor:'[Your Company] (self)',query:q}});\n}\nsd.requestMeta = r.map(x => x.json);\nreturn r;"
+      }
+    },
+    {
+      "id": "http-ci-fetch",
+      "name": "Fetch URLs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        600
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "cod-ci-process",
+      "name": "Process Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        600
+      ],
+      "parameters": {
+        "jsCode": "// Process all HTTP responses into signals\nconst items = $input.all();\nconst sd = $getWorkflowStaticData('global');\nconst COMPETITORS = sd.competitors || [];\nconst meta = sd.requestMeta || [];\n\nlet stateRows = [];\ntry { stateRows = $('Read State Tab').all().map(i => i.json).filter(r => !r._empty); } catch(e) { stateRows = []; }\n\nlet prevSignals = [];\ntry { prevSignals = $('Read PreviousSignals').all().map(i => i.json).filter(r => !r._empty); } catch(e) { prevSignals = []; }\n\nlet gmailMessages = [];\ntry { gmailMessages = $('Read Gmail Alerts').all().map(i => i.json).filter(r => !r.error && !r._empty); } catch(e) { gmailMessages = []; }\n\n// Changedetection data - parse responseFormat:text wrapper\nlet cdWatches = {};\ntry {\n  const cdRaw = $('Fetch CD Watches').first().json;\n  let cdParsed = cdRaw;\n  if (cdRaw && cdRaw.data && typeof cdRaw.data === 'string') {\n    try { cdParsed = JSON.parse(cdRaw.data); } catch(e) { cdParsed = {}; }\n  }\n  if (cdParsed && !cdParsed.error && typeof cdParsed === 'object') {\n    cdWatches = cdParsed;\n  }\n} catch(e) { cdWatches = {}; }\n\nconst allSignals = [];\nconst errors = [];\nconst stats = {urls_fetched:0,url_errors:0,cd_changes:0,gmail_alerts:0,news_items:0,regulatory_items:0,filtered_noise:0};\n\nfunction matchCompetitor(text) {\n  const lower = String(text).toLowerCase();\n  for (const c of COMPETITORS) {\n    if (lower.includes(c.name.toLowerCase())) return c.name;\n    for (const alt of (c.altNames||[])) {\n      if (lower.includes(alt.toLowerCase())) return c.name;\n    }\n    if (c.domain && lower.includes(c.domain)) return c.name;\n  }\n  return null;\n}\n\nfunction simpleHash(str) {\n  let h = 0;\n  for (let i = 0; i < str.length; i++) {\n    h = ((h << 5) - h) + str.charCodeAt(i);\n    h |= 0;\n  }\n  return h.toString(16);\n}\n\nfunction tryJson(s) {\n  if (typeof s !== 'string') return null;\n  try { return JSON.parse(s); } catch(e) { return null; }\n}\n\nconst INDUSTRY_KEYWORDS = ['YOUR_INDUSTRY_TERM', 'YOUR_KEYWORD_1', 'YOUR_KEYWORD_2',\n  // Add 10-15 keywords that define your space.\n  // Examples for different industries:\n  // Project management: 'project planning', 'resource allocation', 'gantt', 'agile'\n  // HR tech: 'talent acquisition', 'employee engagement', 'HRIS', 'onboarding'\n  // Cybersecurity: 'compliance', 'risk management', 'governance', 'audit', 'penetration testing'\n  'YOUR_REGULATION_1', 'YOUR_REGULATION_2'];\n\nconst REGULATORY_EXCLUDE = ['cryptocurrency', 'real estate', 'sports',\n  'entertainment', 'weather', 'recipe', 'horoscope'];\n  // Add terms that cause false positives for YOUR competitors.\n  // Example: if a competitor is called \"Monday\", exclude 'mountain climbing', 'hiking'\n\nfunction isRelevantNews(signal) {\n  const text = (signal.title + ' ' + (signal.summary || '')).toLowerCase();\n  const comp = COMPETITORS.find(function(c) { return c.name === signal.competitor; });\n  if (!comp) return true;\n  const names = [comp.name].concat(comp.altNames||[]).filter(Boolean).map(function(s) { return s.toLowerCase(); });\n  if (comp.domain) names.push(comp.domain.toLowerCase());\n  var mentionsCompetitor = names.some(function(n) { return text.includes(n); });\n  if (mentionsCompetitor) return true;\n  return INDUSTRY_KEYWORDS.some(function(kw) { return text.includes(kw); });\n}\n\nfunction isRelevantRegulatory(signal) {\n  const text = (signal.title + ' ' + (signal.summary || '')).toLowerCase();\n  if (REGULATORY_EXCLUDE.some(function(kw) { return text.includes(kw); })) return false;\n  return ['compliance', 'risk', 'governance', 'regulation',\n    // Add your industry-specific regulatory terms here\n    'audit', 'data protection'].some(function(kw) { return text.includes(kw); });\n}\n\nconst twoWeeksAgo = new Date(Date.now() - 14*24*60*60*1000);\n\nfor (const [uuid, w] of Object.entries(cdWatches)) {\n  if (typeof w !== 'object' || !w) continue;\n  if (w.last_changed && w.last_changed > 0) {\n    const cd = new Date(w.last_changed * 1000);\n    if (cd > twoWeeksAgo) {\n      stats.cd_changes++;\n      allSignals.push({\n        source: 'changedetection',\n        competitor: matchCompetitor(w.title || w.link || w.url || '') || (w.title || w.link || w.url || uuid).split(' - ')[0] || 'Unknown',\n        title: 'Page change: ' + (w.title || w.link || w.url || uuid),\n        summary: 'Content changed (detected by changedetection.io)',\n        url: w.link || w.url || '',\n        timestamp: cd.toISOString()\n      });\n    }\n  }\n}\n\nfor (let i = 0; i < items.length; i++) {\n  const m = meta[i] || {};\n  const d = items[i].json;\n  const type = m.type || 'unknown';\n  const competitor = m.competitor || 'Unknown';\n  const body = d.data || '';\n\n  if (d.error) {\n    errors.push(type + ' ' + (m.url || '') + ': ' + (typeof d.error === 'object' ? d.error.message || JSON.stringify(d.error).substring(0, 100) : String(d.error)));\n    if (type === 'url_monitor') stats.url_errors++;\n    continue;\n  }\n\n  try {\n    if (type === 'url_monitor') {\n      stats.urls_fetched++;\n      const hash = simpleHash(String(body));\n      const sr = stateRows.find(function(r) { return r.URL === m.url; });\n      if (sr && sr.ContentHash && sr.ContentHash !== String(hash)) {\n        allSignals.push({\n          source: 'url_monitor',\n          competitor: competitor,\n          title: 'Website change: ' + m.url,\n          summary: 'Content hash changed',\n          url: m.url,\n          timestamp: new Date().toISOString()\n        });\n      }\n      if (!sd.urlHashes) sd.urlHashes = {};\n      sd.urlHashes[m.url] = {competitor: competitor, hash: String(hash)};\n    }\n    else if (type === 'news_search' || type === 'regulatory' || type === 'self_search') {\n      const data = tryJson(body);\n      if (data && data.results) {\n        for (const r of data.results.slice(0, 10)) {\n          const src = type === 'regulatory' ? 'regulatory' : type === 'self_search' ? 'self_search' : 'news_search';\n          const signal = {\n            source: src,\n            competitor: competitor,\n            title: r.title || '',\n            summary: r.content || '',\n            url: r.url || '',\n            timestamp: new Date().toISOString()\n          };\n          if (src === 'news_search' && !isRelevantNews(signal)) {\n            stats.filtered_noise++;\n            continue;\n          }\n          if (src === 'regulatory' && !isRelevantRegulatory(signal)) {\n            stats.filtered_noise++;\n            continue;\n          }\n          if (type === 'news_search') stats.news_items++;\n          if (type === 'regulatory') stats.regulatory_items++;\n          allSignals.push(signal);\n        }\n      }\n    }\n  } catch(e) {\n    errors.push('Processing ' + type + ': ' + e.message);\n  }\n}\n\nfor (const msg of gmailMessages) {\n  const subject = msg.subject || msg.Subject || '';\n  const body = msg.snippet || msg.textPlain || '';\n  if (!subject && !body) continue;\n  const from = msg.from || msg.From || '';\n  const date = msg.date || msg.Date || new Date().toISOString();\n  const comp = matchCompetitor(subject + ' ' + body);\n  const allText = body + ' ' + (msg.textHtml || '');\n  const urlMatch = allText.match(/https?:\\/\\/[^\\s\\\"'<>]+/g);\n  const firstUrl = urlMatch ? (urlMatch.find(function(u) { return u.indexOf('google.com/alerts') === -1 && u.indexOf('f5bot.com') === -1; }) || urlMatch[0]) : '';\n  stats.gmail_alerts++;\n  allSignals.push({\n    source: 'gmail_alert',\n    competitor: comp || 'Unknown',\n    title: subject,\n    summary: body.substring(0, 300),\n    url: firstUrl || '',\n    timestamp: date,\n    alertType: from.indexOf('f5bot') !== -1 ? 'f5bot' : 'google_alert'\n  });\n}\n\nsd.stats = {competitors_monitored: COMPETITORS.length, urls_fetched: stats.urls_fetched, url_errors: stats.url_errors, cd_changes: stats.cd_changes, gmail_alerts: stats.gmail_alerts, news_items: stats.news_items, regulatory_items: stats.regulatory_items, filtered_noise: stats.filtered_noise};\nsd.previousSignals = prevSignals;\n\nreturn [{json: {\n  signals: allSignals,\n  stats: sd.stats,\n  signalCount: allSignals.length,\n  debugErrors: errors.slice(0, 10)\n}}];"
+      }
+    },
+    {
+      "id": "http-ci-cd",
+      "name": "Fetch CD Watches",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        750
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://host.docker.internal:5555/api/v1/watch",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR_CHANGEDETECTION_API_KEY"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Metadata": {
+      "main": [
+        [
+          {
+            "node": "Read State Tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup Signals": {
+      "main": [
+        [
+          {
+            "node": "Build LLM Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build LLM Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call Claude API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Claude API": {
+      "main": [
+        [
+          {
+            "node": "Parse LLM Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse LLM Response": {
+      "main": [
+        [
+          {
+            "node": "Build HTML Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build HTML Email": {
+      "main": [
+        [
+          {
+            "node": "Send Digest Email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Prepare State Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare State Updates": {
+      "main": [
+        [
+          {
+            "node": "Clear State Tab",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Clear PreviousSignals",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write History Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear State Tab": {
+      "main": [
+        [
+          {
+            "node": "Write State Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write State Rows": {
+      "main": [
+        [
+          {
+            "node": "Append State Tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear PreviousSignals": {
+      "main": [
+        [
+          {
+            "node": "Write PrevSignals Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write PrevSignals Rows": {
+      "main": [
+        [
+          {
+            "node": "Append PreviousSignals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write History Rows": {
+      "main": [
+        [
+          {
+            "node": "Append History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read State Tab": {
+      "main": [
+        [
+          {
+            "node": "Ensure Flow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensure Flow": {
+      "main": [
+        [
+          {
+            "node": "Read PreviousSignals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read PreviousSignals": {
+      "main": [
+        [
+          {
+            "node": "Ensure Flow 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensure Flow 2": {
+      "main": [
+        [
+          {
+            "node": "Read Gmail Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Gmail Alerts": {
+      "main": [
+        [
+          {
+            "node": "Build Request List",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch CD Watches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Request List": {
+      "main": [
+        [
+          {
+            "node": "Fetch URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch URLs": {
+      "main": [
+        [
+          {
+            "node": "Process Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Results": {
+      "main": [
+        [
+          {
+            "node": "Dedup Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "UTC",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "executionTimeout": 600,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "00000000-0000-0000-0000-000000000000",
+  "activeVersionId": null,
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-03-15T10:48:02.601Z",
+      "createdAt": "2026-03-15T10:48:02.601Z",
+      "role": "workflow:owner",
+      "workflowId": "YOUR_WORKFLOW_ID",
+      "projectId": "YOUR_PROJECT_ID",
+      "project": {
+        "updatedAt": "2026-02-26T17:49:18.762Z",
+        "createdAt": "2026-02-26T17:47:35.229Z",
+        "id": "YOUR_PROJECT_ID",
+        "name": "Your Name <your@email.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "YOUR_USER_ID"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": null
+}

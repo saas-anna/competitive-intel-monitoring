@@ -1,0 +1,92 @@
+{
+  "_note": "This is an example of what a mature, tuned system produces. Your first few runs will have more noise and fewer patterns as you tune keywords and filters.",
+  "strategic_signals": [
+    {
+      "competitor": "Competitor Alpha",
+      "signal_type": "PRICING",
+      "title": "Competitor Alpha restructures pricing — drops per-seat model for usage-based tiers",
+      "analysis": "This is a significant GTM shift. Usage-based pricing lowers the barrier to entry for smaller organizations — exactly our sweet spot. If their entry tier undercuts our starter plan, we may see increased competition in the SMB segment. Worth monitoring their landing page for specific price points.",
+      "sources": [
+        {"name": "TechCrunch", "url": "https://techcrunch.com/2025/01/15/competitor-alpha-pricing"},
+        {"name": "competitor-alpha.com", "url": "https://www.competitor-alpha.com/pricing"}
+      ]
+    },
+    {
+      "competitor": "Competitor Gamma",
+      "signal_type": "PARTNERSHIP",
+      "title": "Competitor Gamma announces strategic partnership with Big Four consulting firm",
+      "analysis": "Channel partnerships with consulting firms accelerate enterprise deals. This gives Competitor Gamma warm introductions into exactly the mid-market accounts we're targeting. Their product-plus-services bundle could be compelling for risk-averse buyers who want implementation support.",
+      "sources": [
+        {"name": "Business Wire", "url": "https://www.businesswire.com/news/competitor-gamma-partnership"},
+        {"name": "Google Alert", "url": "https://www.consultancy.eu/news/competitor-gamma-big-four"}
+      ]
+    }
+  ],
+  "notable_changes": [
+    {
+      "competitor": "Competitor Beta",
+      "title": "New English-language version of website launched",
+      "context": "Previously domestic-only website. Signals international expansion intent — entering our addressable market.",
+      "sources": [{"name": "competitor-beta.com", "url": "https://www.competitor-beta.com/en"}]
+    },
+    {
+      "competitor": "Competitor Alpha",
+      "title": "Hiring 3 SDRs in EMEA region (LinkedIn job posts)",
+      "context": "Outbound sales push in our primary market. Previously relied on inbound/partner channel.",
+      "sources": [{"name": "F5Bot (Reddit)", "url": "https://www.reddit.com/r/sales/comments/abc123"}]
+    },
+    {
+      "competitor": "Competitor Epsilon",
+      "title": "Added automated workflow builder to product changelog",
+      "context": "Closing a gap that was previously a differentiator for us. Feature parity risk in the automation space.",
+      "sources": [{"name": "competitor-epsilon.com", "url": "https://www.competitor-epsilon.com/changelog"}]
+    },
+    {
+      "competitor": "Competitor Delta",
+      "title": "New case study published featuring Fortune 500 customer",
+      "context": "Signaling enterprise-readiness. Not our ICP segment directly, but establishes credibility that influences mid-market buyers.",
+      "sources": [{"name": "competitor-delta.com", "url": "https://www.competitor-delta.com/customers/fortune500"}]
+    }
+  ],
+  "regulatory_market": [
+    {
+      "title": "New data protection regulation enforcement deadline confirmed for Q3 2025",
+      "summary": "Multiple jurisdictions confirmed implementation timelines. Creates urgency for organizations in scope — potential demand driver for compliance tools.",
+      "sources": [{"name": "Reuters", "url": "https://www.reuters.com/technology/data-protection-regulation-2025"}]
+    },
+    {
+      "title": "AI Act compliance requirements finalized — enterprise software impact assessment due",
+      "summary": "Regulation now enforceable. Organizations using AI in decision-making need documented compliance. Creates demand for audit and governance tooling.",
+      "sources": [{"name": "TechCrunch", "url": "https://techcrunch.com/2025/01/20/ai-act-enterprise-impact"}]
+    }
+  ],
+  "background": [
+    {
+      "competitor": "Competitor Zeta",
+      "title": "Competitor Zeta mentioned in Gartner market guide for [industry] platforms",
+      "sources": [{"name": "Google Alert", "url": "https://www.gartner.com/en/documents/industry-market-guide-2025"}]
+    },
+    {
+      "competitor": "Competitor Eta",
+      "title": "2 new G2 reviews (4.2 avg rating, no notable themes)",
+      "sources": [{"name": "G2", "url": "https://www.g2.com/products/competitor-eta/reviews"}]
+    },
+    {
+      "competitor": "Competitor Theta",
+      "title": "Blog post: '5 Steps to Better Team Collaboration' — routine content, no product announcements",
+      "sources": [{"name": "competitor-theta.com", "url": "https://www.competitor-theta.com/blog/risk-management-steps"}]
+    }
+  ],
+  "patterns": [
+    "Competitor Alpha is on an aggressive GTM trajectory: pricing restructure + regional hiring + increased content velocity. Third consecutive period with strategic-level signals.",
+    "Industry-wide movement toward usage-based pricing — Competitor Alpha and Competitor Epsilon both shifted away from per-seat models this quarter.",
+    "Regulatory pressure creating visible demand signals across multiple competitors' content strategies."
+  ],
+  "no_signals": [
+    "Competitor Iota",
+    "Competitor Kappa",
+    "Competitor Lambda",
+    "Competitor Mu",
+    "Competitor Nu"
+  ]
+}

@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=changeme
+      - GENERIC_TIMEZONE=UTC
+      - N8N_SECURE_COOKIE=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  changedetection:
+    image: ghcr.io/dgtlmoon/changedetection.io:latest
+    container_name: changedetection
+    restart: unless-stopped
+    ports:
+      - "5555:5000"
+    environment:
+      - PLAYWRIGHT_DRIVER_URL=ws://playwright-chrome:3000
+    volumes:
+      - changedetection_data:/datastore
+    depends_on:
+      - playwright-chrome
+
+  playwright-chrome:
+    image: dgtlmoon/sockpuppetbrowser:latest
+    container_name: playwright-chrome
+    restart: unless-stopped
+    environment:
+      - SCREEN_WIDTH=1920
+      - SCREEN_HEIGHT=1080
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+    environment:
+      - SEARXNG_SECRET=changeme-generate-a-real-secret
+    volumes:
+      - searxng_data:/etc/searxng
+
+volumes:
+  n8n_data:
+  changedetection_data:
+  searxng_data:
