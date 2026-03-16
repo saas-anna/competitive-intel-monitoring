@@ -108,6 +108,6 @@ competitive-intel-monitoring/
 
 ## Credits
 
-Built by [Anna Ursin](https://www.linkedin.com/in/annaursin/) at Saas-Anna, a fractional GTM consultancy for B2B SaaS companies. Originally built for a client's competitive intelligence needs, then open-sourced as a reusable framework.
+Built by [Anna Ursin](https://www.linkedin.com/in/annaursin/) at [Saas-Anna](https://www.saas-anna.com), a fractional GTM consultancy for B2B SaaS companies. Originally built for a client's competitive intelligence needs, then open-sourced as a reusable framework.
 
-If you find this useful, a LinkedIn mention is always appreciated.
+If you find this useful, a LinkedIn mention or a [GitHub star](https://github.com/saas-anna/competitive-intel-monitoring) is always appreciated.
