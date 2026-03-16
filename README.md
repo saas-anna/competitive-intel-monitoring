@@ -98,7 +98,13 @@ competitive-intel-monitoring/
 
 ## How to Use This Repo
 
-**The quick version:** Send Claude (or your LLM of choice) the link to this repo and ask it to help you set up competitive monitoring. It will read the prerequisites, tell you what information you need to prepare, and then build the system for you. You don't need to write any code.
+**The quick version:** Send Claude (or your LLM of choice) the link to this repo and ask it to help you set up competitive monitoring. It will tell you what information you need to prepare, and then build the system for you. You don't need to write any code.
+
+**Which tool to use:**
+
+- **Claude Code (CLI):** The smoothest path. Claude reads the repo, runs commands, configures the workflow, and tests it — close to full autopilot. You provide the strategic input, Claude handles the technical setup.
+- **Chat UI (claude.ai, ChatGPT, etc.):** Works as a patient step-by-step instructor. Claude tells you exactly what to do, but you run the commands and click through the n8n UI yourself. More manual, but no coding required.
+- **The strategic homework** (who are your competitors, what do you care about) is the same regardless of which tool you use — that's just a conversation.
 
 **The step-by-step version:**
 
@@ -107,6 +113,8 @@ competitive-intel-monitoring/
 3. Give `BUILD-GUIDE.md` to Claude along with your completed prerequisites
 4. Claude builds and configures the workflow for your specific situation
 5. Test run, review output quality, activate schedule
+
+**What this system produces:** A biweekly email snapshot — "here's what changed and why it matters." It compares against previous runs to avoid repeating old news, and keeps a log in Google Sheets. It does not build a cumulative competitive database. What you do with the insights over time (tracking patterns, updating your strategy) is up to you.
 
 ---
 
