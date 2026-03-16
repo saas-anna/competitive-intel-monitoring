@@ -4,6 +4,32 @@
 
 ---
 
+## Step 0: Collect Prerequisites from the User
+
+Before building anything, you need to collect the strategic inputs. The user may not have these ready — walk them through it conversationally. Don't dump a checklist. Ask one topic at a time, explain why you need it, and confirm before moving on.
+
+**Competitor list (the foundation — everything depends on this):**
+Ask who they actually compete with in real sales situations. Not 50 names from a market report — the 5-10 companies their prospects mention when they say "we're also looking at..." Push back if they list more than 15 (creates noise) or fewer than 5 (misses things). Then help them assign tiers: the 3-5 they compete with head-to-head are Tier A (deep monitoring), 3-5 they see occasionally are Tier B (moderate), and 2-4 peripheral players are Tier C (passive — only caught if they make news).
+
+**Competitor URLs (what pages to watch for changes):**
+For each Tier A and B competitor, you need specific URLs to monitor. Help them find: homepage, pricing page, blog, changelog/release notes, customers page, careers page. Common mistake: people guess paths like `/changelog` without checking. Every URL must return HTTP 200 — verify before adding. Check sitemap.xml and website footers for pages not in the main navigation.
+
+**Strategy context (what makes this intelligence, not just news):**
+Ask them to describe in 200-400 words: what their client does, who they sell to, what they win on, what they lose on, and what they're worried about. This is what the AI uses to explain *why* a signal matters. If this is vague ("we sell software to businesses"), the output will be generic. Push for specifics.
+
+**Industry keywords (noise filtering):**
+Ask what 5-10 terms define their industry. These are used to filter out irrelevant search results. Common mistake: a competitor called "Monday" returns articles about the day of the week. Industry keywords ensure only relevant results get through.
+
+**Regulatory terms (if applicable):**
+Ask if there are regulations affecting their market. Not every industry has these — skip if not relevant.
+
+**Noise exclusion terms:**
+Ask if any competitor names could mean something else (e.g., a company named after a common word). These terms filter out false positives.
+
+Once you have all inputs, move to the technical build below. See `PREREQUISITES.md` for the full detailed checklist.
+
+---
+
 ## For the LLM: What You're Building
 
 You are building an n8n workflow that monitors competitors and delivers a biweekly email digest with strategic competitive intelligence. The user has completed their prerequisites (competitor list, URLs, strategy context, search terms) and needs you to configure the included workflow template for their specific situation.
