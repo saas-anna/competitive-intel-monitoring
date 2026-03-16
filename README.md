@@ -98,10 +98,14 @@ competitive-intel-monitoring/
 
 ## How to Use This Repo
 
-1. Read `PREREQUISITES.md` — do the research work first
+**The quick version:** Send Claude (or your LLM of choice) the link to this repo and ask it to help you set up competitive monitoring for your client. It will read the prerequisites, tell you what information you need to prepare, and then build the system for you. You don't need to write any code.
+
+**The step-by-step version:**
+
+1. Read `PREREQUISITES.md` — do the research work first (competitor list, URLs, strategy context)
 2. Run `docker-compose up -d` — starts n8n, changedetection.io, SearXNG
-3. Give `BUILD-GUIDE.md` to Claude (or your LLM of choice) along with your completed prerequisites
-4. The LLM builds and configures the workflow for your specific situation
+3. Give `BUILD-GUIDE.md` to Claude along with your completed prerequisites
+4. Claude builds and configures the workflow for your specific situation
 5. Test run, review output quality, activate schedule
 
 ---
